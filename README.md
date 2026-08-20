@@ -13,15 +13,19 @@ smtp/
     └── src/
         ├── PHPMailer.php
         ├── SMTP.php
-        └── Exception.php
+        ├── Exception.php
+        ├── POP3.php
+        ├── OAuth.php
+        ├── OAuthTokenProvider.php
+        └── DSNConfigurator.php
 ```
 
 ## Instalação
 
-1. Baixe o PHPMailer do GitHub: https://github.com/PHPMailer/PHPMailer
-2. Copie os arquivos `PHPMailer.php`, `SMTP.php` e `Exception.php` para `smtp/PHPMailer/src/`
-3. Configure as permissões de escrita para `smtp.json` e `queue.json`
-4. Acesse `index.php` pelo navegador
+1. Configure as permissões de escrita para `smtp.json` e `queue.json`
+2. Acesse `index.php` pelo navegador
+
+> PHPMailer já incluso no repositório.
 
 ## Configuração do Cron
 
