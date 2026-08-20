@@ -1,0 +1,32 @@
+# Proteger arquivos sensíveis
+<FilesMatch "^(smtp\.json|queue\.json|worker\.lock)$">
+    Order Allow,Deny
+    Deny from all
+</FilesMatch>
+
+# Bloquear acesso direto ao worker
+<Files "worker.php">
+    Order Deny,Allow
+    Deny from all
+</Files>
+
+# Proteger contra listagem de diretórios
+Options -Indexes
+
+# Bloquear acesso a .htaccess
+<Files ".htaccess">
+    Order Allow,Deny
+    Deny from all
+</Files>
+
+# Bloquear acesso a arquivos de configuração
+<FilesMatch "\.(json|lock)$">
+    Order Allow,Deny
+    Deny from all
+</FilesMatch>
+
+# Permitir acesso apenas ao index.php
+<Files "index.php">
+    Order Allow,Deny
+    Allow from all
+</Files>
