@@ -4,11 +4,11 @@ $delaySeconds = 2;
 $maxAttempts = 3;
 
 $dir = __DIR__;
-$smtpFile = $dir . '/smtp.json';
+$smtpConfigsFile = $dir . '/smtp-configs.json';
 $queueFile = $dir . '/queue.json';
 $lockFile = $dir . '/worker.lock';
 
-if (!file_exists($smtpFile) || !file_exists($queueFile)) {
+if (!file_exists($smtpConfigsFile) || !file_exists($queueFile)) {
     exit(0);
 }
 
@@ -26,7 +26,7 @@ register_shutdown_function(function () use ($lockFile) {
 });
 
 try {
-    $smtpConfig = json_decode(file_get_contents($smtpFile), true);
+    $smtpConfigs = json_decode(file_get_contents($smtpConfigsFile), true);
     $queue = json_decode(file_get_contents($queueFile), true);
 
     if (!is_array($queue)) {
@@ -73,6 +73,11 @@ try {
         exit(0);
     }
 
+    $activeConfigs = array_filter($smtpConfigs, fn($c) => $c['active']);
+    if (empty($activeConfigs)) {
+        exit(0);
+    }
+
     $batch = array_slice($pending, 0, $batchSize);
 
     require_once $dir . '/PHPMailer/src/Exception.php';
@@ -84,19 +89,15 @@ try {
 
     $sent = 0;
     $failed = 0;
+    $configIndex = 0;
+    $activeConfigsArray = array_values($activeConfigs);
 
     foreach ($batch as $b) {
         $key = $b['key'];
         $item = $b['item'];
 
-        if (empty($smtpConfig['host']) || empty($smtpConfig['from_email'])) {
-            $item['status'] = 'failed';
-            $item['error'] = 'Configuração SMTP incompleta';
-            $item['attempts'] = ($item['attempts'] ?? 0) + 1;
-            $queue[$key] = $item;
-            $failed++;
-            continue;
-        }
+        $smtpConfig = $activeConfigsArray[$configIndex % count($activeConfigsArray)];
+        $configIndex++;
 
         $item['status'] = 'processing';
         $queue[$key] = $item;
@@ -110,11 +111,9 @@ try {
             $mail->CharSet = 'UTF-8';
             $mail->Encoding = 'base64';
 
-            if (!empty($smtpConfig['user'])) {
-                $mail->SMTPAuth = true;
-                $mail->Username = $smtpConfig['user'];
-                $mail->Password = $smtpConfig['password'];
-            }
+            $mail->SMTPAuth = true;
+            $mail->Username = $smtpConfig['user'];
+            $mail->Password = $smtpConfig['password'];
 
             $enc = strtolower($smtpConfig['encryption'] ?? '');
             if ($enc === 'ssl') {

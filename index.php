@@ -9,26 +9,18 @@ require_once __DIR__ . '/PHPMailer/src/PHPMailer.php';
 require_once __DIR__ . '/PHPMailer/src/SMTP.php';
 
 $dir = __DIR__;
-$smtpFile = $dir . '/smtp.json';
+$smtpConfigsFile = $dir . '/smtp-configs.json';
 $queueFile = $dir . '/queue.json';
 
-if (!file_exists($smtpFile)) {
-    file_put_contents($smtpFile, json_encode([
-        'host' => '',
-        'port' => 587,
-        'user' => '',
-        'password' => '',
-        'encryption' => 'tls',
-        'from_email' => '',
-        'from_name' => ''
-    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+if (!file_exists($smtpConfigsFile)) {
+    file_put_contents($smtpConfigsFile, json_encode([], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
 }
 
 if (!file_exists($queueFile)) {
     file_put_contents($queueFile, json_encode([], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
 }
 
-$smtpConfig = json_decode(file_get_contents($smtpFile), true);
+$smtpConfigs = json_decode(file_get_contents($smtpConfigsFile), true);
 $queue = json_decode(file_get_contents($queueFile), true);
 
 $message = '';
@@ -52,44 +44,124 @@ function parseEmails($text) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
-    if ($action === 'save_config') {
+    if ($action === 'add_smtp') {
         $newConfig = [
+            'id' => uniqid('smtp_', true),
             'host' => trim($_POST['host'] ?? ''),
             'port' => intval($_POST['port'] ?? 587),
             'user' => trim($_POST['user'] ?? ''),
             'password' => trim($_POST['password'] ?? ''),
             'encryption' => $_POST['encryption'] ?? 'tls',
             'from_email' => trim($_POST['from_email'] ?? ''),
-            'from_name' => trim($_POST['from_name'] ?? '')
+            'from_name' => trim($_POST['from_name'] ?? ''),
+            'active' => true
         ];
 
-        file_put_contents($smtpFile, json_encode($newConfig, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
-        $smtpConfig = $newConfig;
-        $message = 'SMTP configuration saved successfully.';
+        if (empty($newConfig['host']) || empty($newConfig['user'])) {
+            $message = 'Host and Username are required.';
+            $messageType = 'error';
+        } else {
+            $smtpConfigs[] = $newConfig;
+            file_put_contents($smtpConfigsFile, json_encode($smtpConfigs, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+            $message = 'SMTP configuration added successfully.';
+            $messageType = 'success';
+        }
+    }
+
+    if ($action === 'upload_smtp') {
+        if (!empty($_FILES['smtp_file']['tmp_name'])) {
+            $fileContent = file_get_contents($_FILES['smtp_file']['tmp_name']);
+            $lines = explode("\n", $fileContent);
+            $added = 0;
+
+            foreach ($lines as $line) {
+                $line = trim($line);
+                if (empty($line)) continue;
+
+                $parts = explode('|', $line);
+                if (count($parts) < 4) continue;
+
+                $newConfig = [
+                    'id' => uniqid('smtp_', true),
+                    'host' => trim($parts[0]),
+                    'port' => intval(trim($parts[1])),
+                    'user' => trim($parts[2]),
+                    'password' => trim($parts[3]),
+                    'encryption' => isset($parts[4]) ? trim($parts[4]) : 'tls',
+                    'from_email' => trim($parts[2]),
+                    'from_name' => 'SMTP Send',
+                    'active' => true
+                ];
+
+                if (!empty($newConfig['host']) && !empty($newConfig['user'])) {
+                    $smtpConfigs[] = $newConfig;
+                    $added++;
+                }
+            }
+
+            file_put_contents($smtpConfigsFile, json_encode($smtpConfigs, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+            $message = "$added SMTP configuration(s) imported successfully.";
+            $messageType = 'success';
+        } else {
+            $message = 'Please select a file to upload.';
+            $messageType = 'error';
+        }
+    }
+
+    if ($action === 'toggle_smtp') {
+        $configId = $_POST['config_id'] ?? '';
+        foreach ($smtpConfigs as &$config) {
+            if ($config['id'] === $configId) {
+                $config['active'] = !$config['active'];
+                break;
+            }
+        }
+        file_put_contents($smtpConfigsFile, json_encode($smtpConfigs, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+        $message = 'SMTP configuration updated.';
+        $messageType = 'success';
+    }
+
+    if ($action === 'delete_smtp') {
+        $configId = $_POST['config_id'] ?? '';
+        $smtpConfigs = array_filter($smtpConfigs, function($config) use ($configId) {
+            return $config['id'] !== $configId;
+        });
+        $smtpConfigs = array_values($smtpConfigs);
+        file_put_contents($smtpConfigsFile, json_encode($smtpConfigs, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+        $message = 'SMTP configuration deleted.';
         $messageType = 'success';
     }
 
     if ($action === 'test_smtp') {
+        $configId = $_POST['config_id'] ?? '';
         $testEmail = trim($_POST['test_email'] ?? '');
 
-        if (empty($testEmail) || !filter_var($testEmail, FILTER_VALIDATE_EMAIL)) {
+        $selectedConfig = null;
+        foreach ($smtpConfigs as $config) {
+            if ($config['id'] === $configId) {
+                $selectedConfig = $config;
+                break;
+            }
+        }
+
+        if (!$selectedConfig) {
+            $message = 'SMTP configuration not found.';
+            $messageType = 'error';
+        } elseif (empty($testEmail) || !filter_var($testEmail, FILTER_VALIDATE_EMAIL)) {
             $message = 'Enter a valid test email.';
             $messageType = 'error';
         } else {
             try {
                 $mail = new PHPMailer(true);
                 $mail->isSMTP();
-                $mail->Host = $smtpConfig['host'];
-                $mail->Port = $smtpConfig['port'];
+                $mail->Host = $selectedConfig['host'];
+                $mail->Port = $selectedConfig['port'];
                 $mail->CharSet = 'UTF-8';
+                $mail->SMTPAuth = true;
+                $mail->Username = $selectedConfig['user'];
+                $mail->Password = $selectedConfig['password'];
 
-                if (!empty($smtpConfig['user'])) {
-                    $mail->SMTPAuth = true;
-                    $mail->Username = $smtpConfig['user'];
-                    $mail->Password = $smtpConfig['password'];
-                }
-
-                $enc = strtolower($smtpConfig['encryption']);
+                $enc = strtolower($selectedConfig['encryption']);
                 if ($enc === 'ssl') {
                     $mail->SMTPSecure = PHPMailer::ENCRYPTION_SMTPS;
                 } elseif ($enc === 'tls') {
@@ -98,12 +170,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $mail->SMTPAutoTLS = false;
                 }
 
-                $mail->setFrom($smtpConfig['from_email'], $smtpConfig['from_name']);
+                $mail->setFrom($selectedConfig['from_email'], $selectedConfig['from_name']);
                 $mail->addAddress($testEmail);
                 $mail->isHTML(true);
                 $mail->Subject = 'SMTP Connection Test';
-                $mail->Body = '<h2>Success!</h2><p>Your SMTP configuration is working correctly.</p>';
-                $mail->AltBody = 'Success! Your SMTP configuration is working correctly.';
+                $mail->Body = '<h2>Success!</h2><p>SMTP configuration is working correctly.</p>';
+                $mail->AltBody = 'Success! SMTP configuration is working correctly.';
 
                 $mail->smtpConnect();
                 $mail->smtpClose();
@@ -168,7 +240,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$smtpConfig = json_decode(file_get_contents($smtpFile), true);
+$smtpConfigs = json_decode(file_get_contents($smtpConfigsFile), true);
 $queue = json_decode(file_get_contents($queueFile), true);
 
 $counts = ['pending' => 0, 'processing' => 0, 'sent' => 0, 'failed' => 0];
@@ -177,7 +249,8 @@ foreach ($queue as $item) {
     if (isset($counts[$s])) $counts[$s]++;
 }
 
-$smtpStatus = (!empty($smtpConfig['host']) && !empty($smtpConfig['user'])) ? 'Configured' : 'Not configured';
+$activeConfigs = array_filter($smtpConfigs, fn($c) => $c['active']);
+$smtpStatus = count($activeConfigs) > 0 ? count($activeConfigs) . ' Active' : 'None';
 $recentResults = array_reverse(array_slice($queue, -20));
 ?>
 <!DOCTYPE html>
@@ -209,6 +282,9 @@ $recentResults = array_reverse(array_slice($queue, -20));
         .btn-success:hover { background: #219a52; }
         .btn-warning { background: #f39c12; color: #fff; }
         .btn-warning:hover { background: #d68910; }
+        .btn-danger { background: #e74c3c; color: #fff; }
+        .btn-danger:hover { background: #c0392b; }
+        .btn-sm { padding: 5px 10px; font-size: 12px; }
         .btn-group { display: flex; gap: 10px; margin-top: 10px; }
         .status-bar { display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 15px; }
         .status-item { padding: 12px 20px; border-radius: 6px; text-align: center; min-width: 120px; }
@@ -232,6 +308,8 @@ $recentResults = array_reverse(array_slice($queue, -20));
         .badge-failed { background: #fab1a0; color: #721c24; }
         .badge-pending { background: #ffeaa7; color: #856404; }
         .badge-processing { background: #74b9ff; color: #0c5460; }
+        .badge-active { background: #55efc4; color: #155724; }
+        .badge-inactive { background: #ddd; color: #666; }
         .empty { text-align: center; color: #999; padding: 20px; }
         .divider { border: none; border-top: 1px dashed #ddd; margin: 15px 0; }
         .or-text { text-align: center; color: #999; font-size: 0.9em; }
@@ -239,7 +317,18 @@ $recentResults = array_reverse(array_slice($queue, -20));
         .file-upload:hover { border-color: #3498db; }
         .file-upload input[type="file"] { display: none; }
         .file-upload .icon { font-size: 2em; margin-bottom: 10px; }
-        @media (max-width: 600px) { .row { flex-direction: column; } }
+        .smtp-list { margin-top: 15px; }
+        .smtp-item { background: #f8f9fa; border: 1px solid #eee; border-radius: 6px; padding: 12px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+        .smtp-item .info { flex: 1; }
+        .smtp-item .host { font-weight: 600; color: #333; }
+        .smtp-item .user { font-size: 0.9em; color: #666; }
+        .smtp-item .actions { display: flex; gap: 5px; }
+        .tabs { display: flex; gap: 5px; margin-bottom: 15px; }
+        .tab { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; background: #eee; color: #666; }
+        .tab.active { background: #3498db; color: #fff; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        @media (max-width: 600px) { .row { flex-direction: column; } .smtp-item { flex-direction: column; gap: 10px; } }
     </style>
 </head>
 <body>
@@ -270,61 +359,128 @@ $recentResults = array_reverse(array_slice($queue, -20));
     </div>
 
     <div class="card">
-        <h2>SMTP Configuration <span class="smtp-badge <?php echo $smtpStatus === 'Configured' ? 'ok' : 'nok'; ?>"><?php echo $smtpStatus; ?></span></h2>
-        <form method="POST">
-            <input type="hidden" name="action" value="save_config">
-            <div class="row">
-                <div>
-                    <label>SMTP Host</label>
-                    <input type="text" name="host" value="<?php echo htmlspecialchars($smtpConfig['host'] ?? ''); ?>" placeholder="smtp.example.com">
-                </div>
-                <div>
-                    <label>Port</label>
-                    <input type="number" name="port" value="<?php echo intval($smtpConfig['port'] ?? 587); ?>">
-                </div>
-                <div>
-                    <label>Encryption</label>
-                    <select name="encryption">
-                        <option value="none" <?php echo ($smtpConfig['encryption'] ?? '') === 'none' ? 'selected' : ''; ?>>None</option>
-                        <option value="tls" <?php echo ($smtpConfig['encryption'] ?? 'tls') === 'tls' ? 'selected' : ''; ?>>TLS</option>
-                        <option value="ssl" <?php echo ($smtpConfig['encryption'] ?? '') === 'ssl' ? 'selected' : ''; ?>>SSL</option>
-                    </select>
-                </div>
-            </div>
-            <div class="row">
-                <div>
-                    <label>Username</label>
-                    <input type="text" name="user" value="<?php echo htmlspecialchars($smtpConfig['user'] ?? ''); ?>">
-                </div>
-                <div>
-                    <label>Password</label>
-                    <input type="password" name="password" value="" placeholder="<?php echo !empty($smtpConfig['password']) ? '*******' : ''; ?>">
-                </div>
-            </div>
-            <div class="row">
-                <div>
-                    <label>Sender Email</label>
-                    <input type="text" name="from_email" value="<?php echo htmlspecialchars($smtpConfig['from_email'] ?? ''); ?>">
-                </div>
-                <div>
-                    <label>Sender Name</label>
-                    <input type="text" name="from_name" value="<?php echo htmlspecialchars($smtpConfig['from_name'] ?? ''); ?>">
-                </div>
-            </div>
-            <div class="btn-group">
-                <button type="submit" class="btn btn-primary">Save Configuration</button>
-            </div>
-        </form>
-    </div>
+        <h2>SMTP Configurations <span class="smtp-badge <?php echo count($activeConfigs) > 0 ? 'ok' : 'nok'; ?>"><?php echo $smtpStatus; ?></span></h2>
+        
+        <div class="tabs">
+            <button class="tab active" onclick="showTab('add-single')">Add Single</button>
+            <button class="tab" onclick="showTab('add-bulk')">Bulk Upload</button>
+            <button class="tab" onclick="showTab('test-smtp')">Test SMTP</button>
+        </div>
 
-    <div class="card">
-        <h2>Test SMTP</h2>
-        <form method="POST">
-            <input type="hidden" name="action" value="test_smtp">
-            <label>Test Email</label>
-            <input type="text" name="test_email" placeholder="your@email.com" required>
-            <button type="submit" class="btn btn-warning">Test SMTP</button>
-        </form>
+        <div id="tab-add-single" class="tab-content active">
+            <form method="POST">
+                <input type="hidden" name="action" value="add_smtp">
+                <div class="row">
+                    <div>
+                        <label>SMTP Host</label>
+                        <input type="text" name="host" placeholder="smtp.office365.com" required>
+                    </div>
+                    <div>
+                        <label>Port</label>
+                        <input type="number" name="port" value="587" required>
+                    </div>
+                    <div>
+                        <label>Encryption</label>
+                        <select name="encryption">
+                            <option value="tls">TLS</option>
+                            <option value="ssl">SSL</option>
+                            <option value="none">None</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="row">
+                    <div>
+                        <label>Username</label>
+                        <input type="text" name="user" placeholder="user@example.com" required>
+                    </div>
+                    <div>
+                        <label>Password</label>
+                        <input type="password" name="password" required>
+                    </div>
+                </div>
+                <div class="row">
+                    <div>
+                        <label>Sender Email</label>
+                        <input type="text" name="from_email" placeholder="sender@example.com">
+                    </div>
+                    <div>
+                        <label>Sender Name</label>
+                        <input type="text" name="from_name" placeholder="My SMTP">
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary">Add SMTP</button>
+            </form>
+        </div>
+
+        <div id="tab-add-bulk" class="tab-content">
+            <form method="POST" enctype="multipart/form-data">
+                <input type="hidden" name="action" value="upload_smtp">
+                <label>Upload TXT File with SMTP Credentials</label>
+                <div class="file-upload" onclick="document.getElementById('smtp_file').click();">
+                    <div class="icon">&#128196;</div>
+                    <p>Click to select a .txt file</p>
+                    <p style="font-size:0.8em;color:#999;">Format: smtpHost|port|username|password</p>
+                    <input type="file" name="smtp_file" id="smtp_file" accept=".txt">
+                </div>
+                <p id="smtp-file-name" style="margin-top:8px;font-size:0.9em;color:#666;"></p>
+                <div class="btn-group">
+                    <button type="submit" class="btn btn-success">Import SMTPs</button>
+                </div>
+            </form>
+            <div style="margin-top:15px;padding:15px;background:#f8f9fa;border-radius:6px;">
+                <strong>Example TXT format:</strong>
+                <pre style="margin-top:10px;padding:10px;background:#fff;border:1px solid #eee;border-radius:4px;font-size:12px;">smtp.office365.com|587|user1@domain.com|pass123
+smtp.gmail.com|587|user2@gmail.com|pass456
+smtp.mail.yahoo.com|587|user3@yahoo.com|pass789</pre>
+            </div>
+        </div>
+
+        <div id="tab-test-smtp" class="tab-content">
+            <form method="POST">
+                <input type="hidden" name="action" value="test_smtp">
+                <label>Select SMTP Configuration</label>
+                <select name="config_id" required>
+                    <option value="">-- Select --</option>
+                    <?php foreach ($smtpConfigs as $config): ?>
+                        <option value="<?php echo $config['id']; ?>"><?php echo htmlspecialchars($config['host'] . ' - ' . $config['user']); ?></option>
+                    <?php endforeach; ?>
+                </select>
+                <label>Test Email</label>
+                <input type="text" name="test_email" placeholder="your@email.com" required>
+                <button type="submit" class="btn btn-warning">Test SMTP</button>
+            </form>
+        </div>
+
+        <?php if (!empty($smtpConfigs)): ?>
+        <div class="smtp-list">
+            <h3 style="margin-top:20px;margin-bottom:10px;">Saved Configurations (<?php echo count($smtpConfigs); ?>)</h3>
+            <?php foreach ($smtpConfigs as $config): ?>
+            <div class="smtp-item">
+                <div class="info">
+                    <div class="host"><?php echo htmlspecialchars($config['host']); ?>:<?php echo $config['port']; ?></div>
+                    <div class="user"><?php echo htmlspecialchars($config['user']); ?></div>
+                </div>
+                <div class="actions">
+                    <span class="badge <?php echo $config['active'] ? 'badge-active' : 'badge-inactive'; ?>">
+                        <?php echo $config['active'] ? 'Active' : 'Inactive'; ?>
+                    </span>
+                    <form method="POST" style="display:inline;">
+                        <input type="hidden" name="action" value="toggle_smtp">
+                        <input type="hidden" name="config_id" value="<?php echo $config['id']; ?>">
+                        <button type="submit" class="btn btn-sm btn-primary">
+                            <?php echo $config['active'] ? 'Disable' : 'Enable'; ?>
+                        </button>
+                    </form>
+                    <form method="POST" style="display:inline;" onsubmit="return confirm('Delete this SMTP configuration?');">
+                        <input type="hidden" name="action" value="delete_smtp">
+                        <input type="hidden" name="config_id" value="<?php echo $config['id']; ?>">
+                        <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+                    </form>
+                </div>
+            </div>
+            <?php endforeach; ?>
+        </div>
+        <?php endif; ?>
     </div>
 
     <div class="card">
@@ -353,7 +509,7 @@ $recentResults = array_reverse(array_slice($queue, -20));
                 <p style="font-size:0.8em;color:#999;">One email per line, or comma/semicolon separated</p>
                 <input type="file" name="email_file" id="email_file" accept=".txt">
             </div>
-            <p id="file-name" style="margin-top:8px;font-size:0.9em;color:#666;"></p>
+            <p id="email-file-name" style="margin-top:8px;font-size:0.9em;color:#666;"></p>
             
             <div class="btn-group" style="margin-top:15px;">
                 <button type="submit" class="btn btn-success">Add to Queue</button>
@@ -389,9 +545,21 @@ $recentResults = array_reverse(array_slice($queue, -20));
 </div>
 
 <script>
+function showTab(tabName) {
+    document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+    document.getElementById('tab-' + tabName).classList.add('active');
+    event.target.classList.add('active');
+}
+
+document.getElementById('smtp_file').addEventListener('change', function(e) {
+    var fileName = e.target.files[0] ? e.target.files[0].name : '';
+    document.getElementById('smtp-file-name').textContent = fileName ? 'Selected: ' + fileName : '';
+});
+
 document.getElementById('email_file').addEventListener('change', function(e) {
     var fileName = e.target.files[0] ? e.target.files[0].name : '';
-    document.getElementById('file-name').textContent = fileName ? 'Selected: ' + fileName : '';
+    document.getElementById('email-file-name').textContent = fileName ? 'Selected: ' + fileName : '';
 });
 </script>
 </body>
