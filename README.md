@@ -1,5 +1,7 @@
 # SMTP Send - Email Sending System
 
+> **Created by: [Heartzin](https://t.me/Heartzin) | Telegram: t.me/Heartzin**
+
 A simple PHP email sending system using PHPMailer with queue processing via Cron.
 
 ## Features
