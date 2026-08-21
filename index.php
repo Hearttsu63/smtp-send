@@ -252,6 +252,7 @@ foreach ($queue as $item) {
 $activeConfigs = array_filter($smtpConfigs, fn($c) => $c['active']);
 $smtpStatus = count($activeConfigs) > 0 ? count($activeConfigs) . ' Active' : 'None';
 $recentResults = array_reverse(array_slice($queue, -20));
+$totalConfigs = count($smtpConfigs);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -265,7 +266,10 @@ $recentResults = array_reverse(array_slice($queue, -20));
         .container { max-width: 900px; margin: 0 auto; padding: 20px; }
         h1 { text-align: center; margin-bottom: 20px; color: #2c3e50; }
         .card { background: #fff; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .card h2 { margin-bottom: 15px; color: #34495e; font-size: 1.2em; border-bottom: 2px solid #3498db; padding-bottom: 8px; }
+        .card h2 { margin-bottom: 15px; color: #34495e; font-size: 1.2em; border-bottom: 2px solid #3498db; padding-bottom: 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+        .card h2::after { content: '\25BC'; font-size: 0.7em; transition: transform 0.2s; }
+        .card.collapsed h2::after { transform: rotate(-90deg); }
+        .card.collapsed .card-body { display: none; }
         label { display: block; margin-bottom: 5px; font-weight: 600; color: #555; }
         input[type="text"], input[type="password"], input[type="number"], input[type="file"], textarea, select {
             width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; margin-bottom: 12px;
@@ -317,8 +321,9 @@ $recentResults = array_reverse(array_slice($queue, -20));
         .file-upload:hover { border-color: #3498db; }
         .file-upload input[type="file"] { display: none; }
         .file-upload .icon { font-size: 2em; margin-bottom: 10px; }
-        .smtp-list { margin-top: 15px; }
-        .smtp-item { background: #f8f9fa; border: 1px solid #eee; border-radius: 6px; padding: 12px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+        .smtp-list { margin-top: 15px; max-height: 400px; overflow-y: auto; border: 1px solid #eee; border-radius: 6px; }
+        .smtp-item { background: #f8f9fa; border-bottom: 1px solid #eee; padding: 12px; display: flex; justify-content: space-between; align-items: center; }
+        .smtp-item:last-child { border-bottom: none; }
         .smtp-item .info { flex: 1; }
         .smtp-item .host { font-weight: 600; color: #333; }
         .smtp-item .user { font-size: 0.9em; color: #666; }
@@ -328,6 +333,8 @@ $recentResults = array_reverse(array_slice($queue, -20));
         .tab.active { background: #3498db; color: #fff; }
         .tab-content { display: none; }
         .tab-content.active { display: block; }
+        .show-more { padding: 10px; text-align: center; background: #f8f9fa; cursor: pointer; color: #3498db; font-weight: 600; }
+        .show-more:hover { background: #eee; }
         @media (max-width: 600px) { .row { flex-direction: column; } .smtp-item { flex-direction: column; gap: 10px; } }
     </style>
 </head>
@@ -358,198 +365,215 @@ $recentResults = array_reverse(array_slice($queue, -20));
         </div>
     </div>
 
-    <div class="card">
-        <h2>SMTP Configurations <span class="smtp-badge <?php echo count($activeConfigs) > 0 ? 'ok' : 'nok'; ?>"><?php echo $smtpStatus; ?></span></h2>
-        
-        <div class="tabs">
-            <button class="tab active" onclick="showTab('add-single')">Add Single</button>
-            <button class="tab" onclick="showTab('add-bulk')">Bulk Upload</button>
-            <button class="tab" onclick="showTab('test-smtp')">Test SMTP</button>
-        </div>
+    <div class="card" id="smtp-card">
+        <h2 onclick="toggleCard('smtp-card')">SMTP Configurations <span class="smtp-badge <?php echo count($activeConfigs) > 0 ? 'ok' : 'nok'; ?>"><?php echo $smtpStatus; ?> (<?php echo $totalConfigs; ?> total)</span></h2>
+        <div class="card-body">
+            <div class="tabs">
+                <button class="tab active" onclick="showTab('add-single')">Add Single</button>
+                <button class="tab" onclick="showTab('add-bulk')">Bulk Upload</button>
+                <button class="tab" onclick="showTab('test-smtp')">Test SMTP</button>
+            </div>
 
-        <div id="tab-add-single" class="tab-content active">
-            <form method="POST">
-                <input type="hidden" name="action" value="add_smtp">
-                <div class="row">
-                    <div>
-                        <label>SMTP Host</label>
-                        <input type="text" name="host" placeholder="smtp.office365.com" required>
+            <div id="tab-add-single" class="tab-content active">
+                <form method="POST">
+                    <input type="hidden" name="action" value="add_smtp">
+                    <div class="row">
+                        <div>
+                            <label>SMTP Host</label>
+                            <input type="text" name="host" placeholder="smtp.office365.com" required>
+                        </div>
+                        <div>
+                            <label>Port</label>
+                            <input type="number" name="port" value="587" required>
+                        </div>
+                        <div>
+                            <label>Encryption</label>
+                            <select name="encryption">
+                                <option value="tls">TLS</option>
+                                <option value="ssl">SSL</option>
+                                <option value="none">None</option>
+                            </select>
+                        </div>
                     </div>
-                    <div>
-                        <label>Port</label>
-                        <input type="number" name="port" value="587" required>
+                    <div class="row">
+                        <div>
+                            <label>Username</label>
+                            <input type="text" name="user" placeholder="user@example.com" required>
+                        </div>
+                        <div>
+                            <label>Password</label>
+                            <input type="password" name="password" required>
+                        </div>
                     </div>
-                    <div>
-                        <label>Encryption</label>
-                        <select name="encryption">
-                            <option value="tls">TLS</option>
-                            <option value="ssl">SSL</option>
-                            <option value="none">None</option>
-                        </select>
+                    <div class="row">
+                        <div>
+                            <label>Sender Email</label>
+                            <input type="text" name="from_email" placeholder="sender@example.com">
+                        </div>
+                        <div>
+                            <label>Sender Name</label>
+                            <input type="text" name="from_name" placeholder="My SMTP">
+                        </div>
                     </div>
-                </div>
-                <div class="row">
-                    <div>
-                        <label>Username</label>
-                        <input type="text" name="user" placeholder="user@example.com" required>
-                    </div>
-                    <div>
-                        <label>Password</label>
-                        <input type="password" name="password" required>
-                    </div>
-                </div>
-                <div class="row">
-                    <div>
-                        <label>Sender Email</label>
-                        <input type="text" name="from_email" placeholder="sender@example.com">
-                    </div>
-                    <div>
-                        <label>Sender Name</label>
-                        <input type="text" name="from_name" placeholder="My SMTP">
-                    </div>
-                </div>
-                <button type="submit" class="btn btn-primary">Add SMTP</button>
-            </form>
-        </div>
+                    <button type="submit" class="btn btn-primary">Add SMTP</button>
+                </form>
+            </div>
 
-        <div id="tab-add-bulk" class="tab-content">
-            <form method="POST" enctype="multipart/form-data">
-                <input type="hidden" name="action" value="upload_smtp">
-                <label>Upload TXT File with SMTP Credentials</label>
-                <div class="file-upload" onclick="document.getElementById('smtp_file').click();">
-                    <div class="icon">&#128196;</div>
-                    <p>Click to select a .txt file</p>
-                    <p style="font-size:0.8em;color:#999;">Format: smtpHost|port|username|password</p>
-                    <input type="file" name="smtp_file" id="smtp_file" accept=".txt">
-                </div>
-                <p id="smtp-file-name" style="margin-top:8px;font-size:0.9em;color:#666;"></p>
-                <div class="btn-group">
-                    <button type="submit" class="btn btn-success">Import SMTPs</button>
-                </div>
-            </form>
-            <div style="margin-top:15px;padding:15px;background:#f8f9fa;border-radius:6px;">
-                <strong>Example TXT format:</strong>
-                <pre style="margin-top:10px;padding:10px;background:#fff;border:1px solid #eee;border-radius:4px;font-size:12px;">smtp.office365.com|587|user1@domain.com|pass123
+            <div id="tab-add-bulk" class="tab-content">
+                <form method="POST" enctype="multipart/form-data">
+                    <input type="hidden" name="action" value="upload_smtp">
+                    <label>Upload TXT File with SMTP Credentials</label>
+                    <div class="file-upload" onclick="document.getElementById('smtp_file').click();">
+                        <div class="icon">&#128196;</div>
+                        <p>Click to select a .txt file</p>
+                        <p style="font-size:0.8em;color:#999;">Format: smtpHost|port|username|password</p>
+                        <input type="file" name="smtp_file" id="smtp_file" accept=".txt">
+                    </div>
+                    <p id="smtp-file-name" style="margin-top:8px;font-size:0.9em;color:#666;"></p>
+                    <div class="btn-group">
+                        <button type="submit" class="btn btn-success">Import SMTPs</button>
+                    </div>
+                </form>
+                <div style="margin-top:15px;padding:15px;background:#f8f9fa;border-radius:6px;">
+                    <strong>Example TXT format:</strong>
+                    <pre style="margin-top:10px;padding:10px;background:#fff;border:1px solid #eee;border-radius:4px;font-size:12px;">smtp.office365.com|587|user1@domain.com|pass123
 smtp.gmail.com|587|user2@gmail.com|pass456
 smtp.mail.yahoo.com|587|user3@yahoo.com|pass789</pre>
+                </div>
             </div>
-        </div>
 
-        <div id="tab-test-smtp" class="tab-content">
-            <form method="POST">
-                <input type="hidden" name="action" value="test_smtp">
-                <label>Select SMTP Configuration</label>
-                <select name="config_id" required>
-                    <option value="">-- Select --</option>
-                    <?php foreach ($smtpConfigs as $config): ?>
-                        <option value="<?php echo $config['id']; ?>"><?php echo htmlspecialchars($config['host'] . ' - ' . $config['user']); ?></option>
-                    <?php endforeach; ?>
-                </select>
-                <label>Test Email</label>
-                <input type="text" name="test_email" placeholder="your@email.com" required>
-                <button type="submit" class="btn btn-warning">Test SMTP</button>
+            <div id="tab-test-smtp" class="tab-content">
+                <form method="POST">
+                    <input type="hidden" name="action" value="test_smtp">
+                    <label>Select SMTP Configuration</label>
+                    <select name="config_id" required>
+                        <option value="">-- Select --</option>
+                        <?php foreach ($smtpConfigs as $config): ?>
+                            <option value="<?php echo $config['id']; ?>"><?php echo htmlspecialchars($config['host'] . ' - ' . $config['user']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <label>Test Email</label>
+                    <input type="text" name="test_email" placeholder="your@email.com" required>
+                    <button type="submit" class="btn btn-warning">Test SMTP</button>
+                </form>
+            </div>
+
+            <?php if (!empty($smtpConfigs)): ?>
+            <div class="smtp-list" id="smtp-list">
+                <h3 style="padding:10px;margin:0;background:#f8f9fa;border-bottom:1px solid #eee;">Saved Configurations (<?php echo $totalConfigs; ?>)</h3>
+                <?php foreach ($smtpConfigs as $index => $config): ?>
+                <div class="smtp-item" data-index="<?php echo $index; ?>" style="<?php echo $index >= 20 ? 'display:none;' : ''; ?>">
+                    <div class="info">
+                        <div class="host"><?php echo htmlspecialchars($config['host']); ?>:<?php echo $config['port']; ?></div>
+                        <div class="user"><?php echo htmlspecialchars($config['user']); ?></div>
+                    </div>
+                    <div class="actions">
+                        <span class="badge <?php echo $config['active'] ? 'badge-active' : 'badge-inactive'; ?>">
+                            <?php echo $config['active'] ? 'Active' : 'Inactive'; ?>
+                        </span>
+                        <form method="POST" style="display:inline;">
+                            <input type="hidden" name="action" value="toggle_smtp">
+                            <input type="hidden" name="config_id" value="<?php echo $config['id']; ?>">
+                            <button type="submit" class="btn btn-sm btn-primary">
+                                <?php echo $config['active'] ? 'Disable' : 'Enable'; ?>
+                            </button>
+                        </form>
+                        <form method="POST" style="display:inline;" onsubmit="return confirm('Delete this SMTP configuration?');">
+                            <input type="hidden" name="action" value="delete_smtp">
+                            <input type="hidden" name="config_id" value="<?php echo $config['id']; ?>">
+                            <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+                        </form>
+                    </div>
+                </div>
+                <?php endforeach; ?>
+                <?php if ($totalConfigs > 20): ?>
+                <div class="show-more" onclick="showAllSmtps()">Show All (<?php echo $totalConfigs; ?>)</div>
+                <?php endif; ?>
+            </div>
+            <?php endif; ?>
+        </div>
+    </div>
+
+    <div class="card" id="send-card">
+        <h2 onclick="toggleCard('send-card')">Send Message</h2>
+        <div class="card-body">
+            <form method="POST" enctype="multipart/form-data" id="send-form">
+                <input type="hidden" name="action" value="add_to_queue">
+                <label>Subject</label>
+                <input type="text" name="subject" required>
+                <label>Message Body</label>
+                <textarea name="body" rows="5" required></textarea>
+                <label class="checkbox-label">
+                    <input type="checkbox" name="allow_html" value="1"> Allow HTML
+                </label>
+                
+                <label>Recipients (one per line, comma, or semicolon)</label>
+                <textarea name="emails" rows="4" placeholder="email1@example.com&#10;email2@example.com&#10;email3@example.com"></textarea>
+                
+                <hr class="divider">
+                <p class="or-text">OR</p>
+                <hr class="divider">
+                
+                <label>Upload TXT File with Emails</label>
+                <div class="file-upload" onclick="document.getElementById('email_file').click();">
+                    <div class="icon">&#128196;</div>
+                    <p>Click to select a .txt file</p>
+                    <p style="font-size:0.8em;color:#999;">One email per line, or comma/semicolon separated</p>
+                    <input type="file" name="email_file" id="email_file" accept=".txt">
+                </div>
+                <p id="email-file-name" style="margin-top:8px;font-size:0.9em;color:#666;"></p>
+                
+                <div class="btn-group" style="margin-top:15px;">
+                    <button type="submit" class="btn btn-success">Add to Queue</button>
+                </div>
             </form>
         </div>
-
-        <?php if (!empty($smtpConfigs)): ?>
-        <div class="smtp-list">
-            <h3 style="margin-top:20px;margin-bottom:10px;">Saved Configurations (<?php echo count($smtpConfigs); ?>)</h3>
-            <?php foreach ($smtpConfigs as $config): ?>
-            <div class="smtp-item">
-                <div class="info">
-                    <div class="host"><?php echo htmlspecialchars($config['host']); ?>:<?php echo $config['port']; ?></div>
-                    <div class="user"><?php echo htmlspecialchars($config['user']); ?></div>
-                </div>
-                <div class="actions">
-                    <span class="badge <?php echo $config['active'] ? 'badge-active' : 'badge-inactive'; ?>">
-                        <?php echo $config['active'] ? 'Active' : 'Inactive'; ?>
-                    </span>
-                    <form method="POST" style="display:inline;">
-                        <input type="hidden" name="action" value="toggle_smtp">
-                        <input type="hidden" name="config_id" value="<?php echo $config['id']; ?>">
-                        <button type="submit" class="btn btn-sm btn-primary">
-                            <?php echo $config['active'] ? 'Disable' : 'Enable'; ?>
-                        </button>
-                    </form>
-                    <form method="POST" style="display:inline;" onsubmit="return confirm('Delete this SMTP configuration?');">
-                        <input type="hidden" name="action" value="delete_smtp">
-                        <input type="hidden" name="config_id" value="<?php echo $config['id']; ?>">
-                        <button type="submit" class="btn btn-sm btn-danger">Delete</button>
-                    </form>
-                </div>
-            </div>
-            <?php endforeach; ?>
-        </div>
-        <?php endif; ?>
     </div>
 
-    <div class="card">
-        <h2>Send Message</h2>
-        <form method="POST" enctype="multipart/form-data">
-            <input type="hidden" name="action" value="add_to_queue">
-            <label>Subject</label>
-            <input type="text" name="subject" required>
-            <label>Message Body</label>
-            <textarea name="body" rows="5" required></textarea>
-            <label class="checkbox-label">
-                <input type="checkbox" name="allow_html" value="1"> Allow HTML
-            </label>
-            
-            <label>Recipients (one per line, comma, or semicolon)</label>
-            <textarea name="emails" rows="4" placeholder="email1@example.com&#10;email2@example.com&#10;email3@example.com"></textarea>
-            
-            <hr class="divider">
-            <p class="or-text">OR</p>
-            <hr class="divider">
-            
-            <label>Upload TXT File with Emails</label>
-            <div class="file-upload" onclick="document.getElementById('email_file').click();">
-                <div class="icon">&#128196;</div>
-                <p>Click to select a .txt file</p>
-                <p style="font-size:0.8em;color:#999;">One email per line, or comma/semicolon separated</p>
-                <input type="file" name="email_file" id="email_file" accept=".txt">
-            </div>
-            <p id="email-file-name" style="margin-top:8px;font-size:0.9em;color:#666;"></p>
-            
-            <div class="btn-group" style="margin-top:15px;">
-                <button type="submit" class="btn btn-success">Add to Queue</button>
-            </div>
-        </form>
-    </div>
-
-    <div class="card">
-        <h2>Recent Results</h2>
-        <?php if (empty($recentResults)): ?>
-            <div class="empty">No results yet.</div>
-        <?php else: ?>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Email</th>
-                        <th>Status</th>
-                        <th>Error</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($recentResults as $item): ?>
+    <div class="card" id="results-card">
+        <h2 onclick="toggleCard('results-card')">Recent Results</h2>
+        <div class="card-body">
+            <?php if (empty($recentResults)): ?>
+                <div class="empty">No results yet.</div>
+            <?php else: ?>
+                <table>
+                    <thead>
                         <tr>
-                            <td><?php echo htmlspecialchars($item['email']); ?></td>
-                            <td><span class="badge badge-<?php echo htmlspecialchars($item['status']); ?>"><?php echo htmlspecialchars(ucfirst($item['status'])); ?></span></td>
-                            <td><?php echo htmlspecialchars($item['error'] ?? '-'); ?></td>
+                            <th>Email</th>
+                            <th>Status</th>
+                            <th>Error</th>
                         </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
-        <?php endif; ?>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($recentResults as $item): ?>
+                            <tr>
+                                <td><?php echo htmlspecialchars($item['email']); ?></td>
+                                <td><span class="badge badge-<?php echo htmlspecialchars($item['status']); ?>"><?php echo htmlspecialchars(ucfirst($item['status'])); ?></span></td>
+                                <td><?php echo htmlspecialchars($item['error'] ?? '-'); ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php endif; ?>
+        </div>
     </div>
 </div>
 
 <script>
+function toggleCard(cardId) {
+    document.getElementById(cardId).classList.toggle('collapsed');
+}
+
 function showTab(tabName) {
     document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
     document.getElementById('tab-' + tabName).classList.add('active');
     event.target.classList.add('active');
+}
+
+function showAllSmtps() {
+    document.querySelectorAll('.smtp-item').forEach(el => el.style.display = 'flex');
+    document.querySelector('.show-more').style.display = 'none';
 }
 
 document.getElementById('smtp_file').addEventListener('change', function(e) {

@@ -7,6 +7,7 @@ $dir = __DIR__;
 $smtpConfigsFile = $dir . '/smtp-configs.json';
 $queueFile = $dir . '/queue.json';
 $lockFile = $dir . '/worker.lock';
+$configIndexFile = $dir . '/smtp-index.json';
 
 if (!file_exists($smtpConfigsFile) || !file_exists($queueFile)) {
     exit(0);
@@ -78,6 +79,15 @@ try {
         exit(0);
     }
 
+    $activeConfigsArray = array_values($activeConfigs);
+    $totalActive = count($activeConfigsArray);
+
+    if (file_exists($configIndexFile)) {
+        $configIndex = intval(file_get_contents($configIndexFile));
+    } else {
+        $configIndex = 0;
+    }
+
     $batch = array_slice($pending, 0, $batchSize);
 
     require_once $dir . '/PHPMailer/src/Exception.php';
@@ -89,14 +99,12 @@ try {
 
     $sent = 0;
     $failed = 0;
-    $configIndex = 0;
-    $activeConfigsArray = array_values($activeConfigs);
 
     foreach ($batch as $b) {
         $key = $b['key'];
         $item = $b['item'];
 
-        $smtpConfig = $activeConfigsArray[$configIndex % count($activeConfigsArray)];
+        $smtpConfig = $activeConfigsArray[$configIndex % $totalActive];
         $configIndex++;
 
         $item['status'] = 'processing';
@@ -157,6 +165,8 @@ try {
             sleep($delaySeconds);
         }
     }
+
+    file_put_contents($configIndexFile, strval($configIndex % $totalActive));
 
 } catch (Exception $e) {
     if (file_exists($queueFile)) {
