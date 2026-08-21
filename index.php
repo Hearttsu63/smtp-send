@@ -1,6 +1,13 @@
 <?php
 header('Content-Type: text/html; charset=UTF-8');
 
+use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\Exception;
+
+require_once __DIR__ . '/PHPMailer/src/Exception.php';
+require_once __DIR__ . '/PHPMailer/src/PHPMailer.php';
+require_once __DIR__ . '/PHPMailer/src/SMTP.php';
+
 $dir = __DIR__;
 $smtpFile = $dir . '/smtp.json';
 $queueFile = $dir . '/queue.json';
@@ -54,13 +61,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $message = 'Informe um e-mail de teste válido.';
             $messageType = 'error';
         } else {
-            require_once $dir . '/PHPMailer/src/Exception.php';
-            require_once $dir . '/PHPMailer/src/PHPMailer.php';
-            require_once $dir . '/PHPMailer/src/SMTP.php';
-
-            use PHPMailer\PHPMailer\PHPMailer;
-            use PHPMailer\PHPMailer\Exception;
-
             try {
                 $mail = new PHPMailer(true);
                 $mail->isSMTP();
