@@ -53,3 +53,7 @@ O worker processa até 10 mensagens por execução, com 2 segundos de intervalo 
 - Validação de destinatários
 - Remoção de duplicatas
 - Controle de tentativas (máximo 3)
+
+## Créditos
+
+- [PHPMailer](https://github.com/PHPMailer/PHPMailer) - Biblioteca oficial de envio de e-mails em PHP (licença LGPL v2.1)
