@@ -1,9 +1,9 @@
 {
-    "host": "smtp.office365.com",
+    "host": "",
     "port": 587,
-    "user": "32327.lahr@divinesainikschool.com",
-    "password": "Vaf89484",
+    "user": "",
+    "password": "",
     "encryption": "tls",
-    "from_email": "32327.lahr@divinesainikschool.com",
-    "from_name": "SMTP Send"
+    "from_email": "",
+    "from_name": ""
 }
