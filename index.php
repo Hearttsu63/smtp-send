@@ -132,6 +132,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $messageType = 'success';
     }
 
+    if ($action === 'delete_all_smtp') {
+        $count = count($smtpConfigs);
+        $smtpConfigs = [];
+        file_put_contents($smtpConfigsFile, json_encode([], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+        $message = "$count SMTP configuration(s) deleted.";
+        $messageType = 'success';
+    }
+
     if ($action === 'test_smtp') {
         $configId = $_POST['config_id'] ?? '';
         $testEmail = trim($_POST['test_email'] ?? '');
@@ -489,6 +497,12 @@ smtp.mail.yahoo.com|587|user3@yahoo.com|pass789</pre>
                 <?php if ($totalConfigs > 20): ?>
                 <div class="show-more" onclick="showAllSmtps()">Show All (<?php echo $totalConfigs; ?>)</div>
                 <?php endif; ?>
+                <div style="padding:10px;background:#fff;border-top:1px solid #eee;text-align:right;">
+                    <form method="POST" style="display:inline;" onsubmit="return confirm('DELETE ALL <?php echo $totalConfigs; ?> SMTP CONFIGURATIONS? This cannot be undone.');">
+                        <input type="hidden" name="action" value="delete_all_smtp">
+                        <button type="submit" class="btn btn-danger">Delete All (<?php echo $totalConfigs; ?>)</button>
+                    </form>
+                </div>
             </div>
             <?php endif; ?>
         </div>
