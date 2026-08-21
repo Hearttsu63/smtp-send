@@ -34,6 +34,21 @@ $queue = json_decode(file_get_contents($queueFile), true);
 $message = '';
 $messageType = '';
 
+function parseEmails($text) {
+    $emails = preg_split('/[,\n;]+/', $text);
+    $validEmails = [];
+    $seen = [];
+    foreach ($emails as $email) {
+        $email = strtolower(trim($email));
+        if ($email === '') continue;
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) continue;
+        if (isset($seen[$email])) continue;
+        $seen[$email] = true;
+        $validEmails[] = $email;
+    }
+    return $validEmails;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
@@ -50,7 +65,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         file_put_contents($smtpFile, json_encode($newConfig, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
         $smtpConfig = $newConfig;
-        $message = 'Configuração SMTP salva com sucesso.';
+        $message = 'SMTP configuration saved successfully.';
         $messageType = 'success';
     }
 
@@ -58,7 +73,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $testEmail = trim($_POST['test_email'] ?? '');
 
         if (empty($testEmail) || !filter_var($testEmail, FILTER_VALIDATE_EMAIL)) {
-            $message = 'Informe um e-mail de teste válido.';
+            $message = 'Enter a valid test email.';
             $messageType = 'error';
         } else {
             try {
@@ -86,17 +101,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $mail->setFrom($smtpConfig['from_email'], $smtpConfig['from_name']);
                 $mail->addAddress($testEmail);
                 $mail->isHTML(true);
-                $mail->Subject = 'Teste de Conexão SMTP';
-                $mail->Body = '<h2>Sucesso!</h2><p>A configuração SMTP está funcionando corretamente.</p>';
-                $mail->AltBody = 'Sucesso! A configuração SMTP está funcionando corretamente.';
+                $mail->Subject = 'SMTP Connection Test';
+                $mail->Body = '<h2>Success!</h2><p>Your SMTP configuration is working correctly.</p>';
+                $mail->AltBody = 'Success! Your SMTP configuration is working correctly.';
 
                 $mail->smtpConnect();
                 $mail->smtpClose();
 
-                $message = 'Conexão SMTP testada com sucesso!';
+                $message = 'SMTP connection tested successfully!';
                 $messageType = 'success';
             } catch (Exception $e) {
-                $message = 'Erro SMTP: ' . htmlspecialchars($e->getMessage());
+                $message = 'SMTP Error: ' . htmlspecialchars($e->getMessage());
                 $messageType = 'error';
             }
         }
@@ -108,29 +123,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $allowHtml = isset($_POST['allow_html']);
         $rawEmails = $_POST['emails'] ?? '';
 
+        if (!empty($_FILES['email_file']['tmp_name'])) {
+            $fileContent = file_get_contents($_FILES['email_file']['tmp_name']);
+            $rawEmails .= "\n" . $fileContent;
+        }
+
         if (empty($subject)) {
-            $message = 'O assunto é obrigatório.';
+            $message = 'Subject is required.';
             $messageType = 'error';
-        } elseif (empty($rawEmails)) {
-            $message = 'Informe pelo menos um destinatário.';
+        } elseif (empty(trim($rawEmails))) {
+            $message = 'Enter at least one recipient.';
             $messageType = 'error';
         } else {
-            $emails = preg_split('/[,\n;]+/', $rawEmails);
-            $validEmails = [];
-            $seen = [];
-
-            foreach ($emails as $email) {
-                $email = trim($email);
-                $email = strtolower($email);
-                if ($email === '') continue;
-                if (!filter_var($email, FILTER_VALIDATE_EMAIL)) continue;
-                if (isset($seen[$email])) continue;
-                $seen[$email] = true;
-                $validEmails[] = $email;
-            }
+            $validEmails = parseEmails($rawEmails);
 
             if (empty($validEmails)) {
-                $message = 'Nenhum e-mail válido encontrado.';
+                $message = 'No valid emails found.';
                 $messageType = 'error';
             } else {
                 $now = date('c');
@@ -153,7 +161,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 file_put_contents($queueFile, json_encode($queue, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
-                $message = "$added destinatário(s) adicionado(s) à fila.";
+                $message = "$added recipient(s) added to queue.";
                 $messageType = 'success';
             }
         }
@@ -169,15 +177,15 @@ foreach ($queue as $item) {
     if (isset($counts[$s])) $counts[$s]++;
 }
 
-$smtpStatus = (!empty($smtpConfig['host']) && !empty($smtpConfig['user'])) ? 'Configurado' : 'Não configurado';
+$smtpStatus = (!empty($smtpConfig['host']) && !empty($smtpConfig['user'])) ? 'Configured' : 'Not configured';
 $recentResults = array_reverse(array_slice($queue, -20));
 ?>
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SMTP Send - Painel</title>
+    <title>SMTP Send - Panel</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; color: #333; line-height: 1.6; }
@@ -186,7 +194,7 @@ $recentResults = array_reverse(array_slice($queue, -20));
         .card { background: #fff; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         .card h2 { margin-bottom: 15px; color: #34495e; font-size: 1.2em; border-bottom: 2px solid #3498db; padding-bottom: 8px; }
         label { display: block; margin-bottom: 5px; font-weight: 600; color: #555; }
-        input[type="text"], input[type="password"], input[type="number"], textarea, select {
+        input[type="text"], input[type="password"], input[type="number"], input[type="file"], textarea, select {
             width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; margin-bottom: 12px;
         }
         textarea { resize: vertical; min-height: 100px; }
@@ -225,6 +233,12 @@ $recentResults = array_reverse(array_slice($queue, -20));
         .badge-pending { background: #ffeaa7; color: #856404; }
         .badge-processing { background: #74b9ff; color: #0c5460; }
         .empty { text-align: center; color: #999; padding: 20px; }
+        .divider { border: none; border-top: 1px dashed #ddd; margin: 15px 0; }
+        .or-text { text-align: center; color: #999; font-size: 0.9em; }
+        .file-upload { background: #f8f9fa; border: 2px dashed #ddd; border-radius: 8px; padding: 20px; text-align: center; cursor: pointer; transition: border-color 0.2s; }
+        .file-upload:hover { border-color: #3498db; }
+        .file-upload input[type="file"] { display: none; }
+        .file-upload .icon { font-size: 2em; margin-bottom: 10px; }
         @media (max-width: 600px) { .row { flex-direction: column; } }
     </style>
 </head>
@@ -239,39 +253,39 @@ $recentResults = array_reverse(array_slice($queue, -20));
     <div class="status-bar">
         <div class="status-item pending">
             <div class="count"><?php echo $counts['pending']; ?></div>
-            <div class="label">Pendentes</div>
+            <div class="label">Pending</div>
         </div>
         <div class="status-item processing">
             <div class="count"><?php echo $counts['processing']; ?></div>
-            <div class="label">Processando</div>
+            <div class="label">Processing</div>
         </div>
         <div class="status-item sent">
             <div class="count"><?php echo $counts['sent']; ?></div>
-            <div class="label">Enviados</div>
+            <div class="label">Sent</div>
         </div>
         <div class="status-item failed">
             <div class="count"><?php echo $counts['failed']; ?></div>
-            <div class="label">Falharam</div>
+            <div class="label">Failed</div>
         </div>
     </div>
 
     <div class="card">
-        <h2>Configuração SMTP <span class="smtp-badge <?php echo $smtpStatus === 'Configurado' ? 'ok' : 'nok'; ?>"><?php echo $smtpStatus; ?></span></h2>
+        <h2>SMTP Configuration <span class="smtp-badge <?php echo $smtpStatus === 'Configured' ? 'ok' : 'nok'; ?>"><?php echo $smtpStatus; ?></span></h2>
         <form method="POST">
             <input type="hidden" name="action" value="save_config">
             <div class="row">
                 <div>
-                    <label>Host SMTP</label>
-                    <input type="text" name="host" value="<?php echo htmlspecialchars($smtpConfig['host'] ?? ''); ?>" placeholder="smtp.exemplo.com">
+                    <label>SMTP Host</label>
+                    <input type="text" name="host" value="<?php echo htmlspecialchars($smtpConfig['host'] ?? ''); ?>" placeholder="smtp.example.com">
                 </div>
                 <div>
-                    <label>Porta</label>
+                    <label>Port</label>
                     <input type="number" name="port" value="<?php echo intval($smtpConfig['port'] ?? 587); ?>">
                 </div>
                 <div>
-                    <label>Criptografia</label>
+                    <label>Encryption</label>
                     <select name="encryption">
-                        <option value="none" <?php echo ($smtpConfig['encryption'] ?? '') === 'none' ? 'selected' : ''; ?>>Nenhuma</option>
+                        <option value="none" <?php echo ($smtpConfig['encryption'] ?? '') === 'none' ? 'selected' : ''; ?>>None</option>
                         <option value="tls" <?php echo ($smtpConfig['encryption'] ?? 'tls') === 'tls' ? 'selected' : ''; ?>>TLS</option>
                         <option value="ssl" <?php echo ($smtpConfig['encryption'] ?? '') === 'ssl' ? 'selected' : ''; ?>>SSL</option>
                     </select>
@@ -279,68 +293,85 @@ $recentResults = array_reverse(array_slice($queue, -20));
             </div>
             <div class="row">
                 <div>
-                    <label>Usuário</label>
+                    <label>Username</label>
                     <input type="text" name="user" value="<?php echo htmlspecialchars($smtpConfig['user'] ?? ''); ?>">
                 </div>
                 <div>
-                    <label>Senha</label>
-                    <input type="password" name="password" value="" placeholder="<?php echo !empty($smtpConfig['password']) ? '••••••••' : ''; ?>">
+                    <label>Password</label>
+                    <input type="password" name="password" value="" placeholder="<?php echo !empty($smtpConfig['password']) ? '*******' : ''; ?>">
                 </div>
             </div>
             <div class="row">
                 <div>
-                    <label>E-mail do Remetente</label>
+                    <label>Sender Email</label>
                     <input type="text" name="from_email" value="<?php echo htmlspecialchars($smtpConfig['from_email'] ?? ''); ?>">
                 </div>
                 <div>
-                    <label>Nome do Remetente</label>
+                    <label>Sender Name</label>
                     <input type="text" name="from_name" value="<?php echo htmlspecialchars($smtpConfig['from_name'] ?? ''); ?>">
                 </div>
             </div>
             <div class="btn-group">
-                <button type="submit" class="btn btn-primary">Salvar Configuração</button>
+                <button type="submit" class="btn btn-primary">Save Configuration</button>
             </div>
         </form>
     </div>
 
     <div class="card">
-        <h2>Testar SMTP</h2>
+        <h2>Test SMTP</h2>
         <form method="POST">
             <input type="hidden" name="action" value="test_smtp">
-            <label>E-mail de Teste</label>
-            <input type="text" name="test_email" placeholder="seu@email.com" required>
-            <button type="submit" class="btn btn-warning">Testar SMTP</button>
+            <label>Test Email</label>
+            <input type="text" name="test_email" placeholder="your@email.com" required>
+            <button type="submit" class="btn btn-warning">Test SMTP</button>
         </form>
     </div>
 
     <div class="card">
-        <h2>Enviar Mensagem</h2>
-        <form method="POST">
+        <h2>Send Message</h2>
+        <form method="POST" enctype="multipart/form-data">
             <input type="hidden" name="action" value="add_to_queue">
-            <label>Assunto</label>
+            <label>Subject</label>
             <input type="text" name="subject" required>
-            <label>Corpo da Mensagem</label>
+            <label>Message Body</label>
             <textarea name="body" rows="5" required></textarea>
             <label class="checkbox-label">
-                <input type="checkbox" name="allow_html" value="1"> Permitir HTML
+                <input type="checkbox" name="allow_html" value="1"> Allow HTML
             </label>
-            <label>Destinatários (um por linha, vírgula ou ponto e vírgula)</label>
-            <textarea name="emails" rows="6" placeholder="email1@exemplo.com&#10;email2@exemplo.com&#10;email3@exemplo.com" required></textarea>
-            <button type="submit" class="btn btn-success">Adicionar à Fila</button>
+            
+            <label>Recipients (one per line, comma, or semicolon)</label>
+            <textarea name="emails" rows="4" placeholder="email1@example.com&#10;email2@example.com&#10;email3@example.com"></textarea>
+            
+            <hr class="divider">
+            <p class="or-text">OR</p>
+            <hr class="divider">
+            
+            <label>Upload TXT File with Emails</label>
+            <div class="file-upload" onclick="document.getElementById('email_file').click();">
+                <div class="icon">&#128196;</div>
+                <p>Click to select a .txt file</p>
+                <p style="font-size:0.8em;color:#999;">One email per line, or comma/semicolon separated</p>
+                <input type="file" name="email_file" id="email_file" accept=".txt">
+            </div>
+            <p id="file-name" style="margin-top:8px;font-size:0.9em;color:#666;"></p>
+            
+            <div class="btn-group" style="margin-top:15px;">
+                <button type="submit" class="btn btn-success">Add to Queue</button>
+            </div>
         </form>
     </div>
 
     <div class="card">
-        <h2>Resultados Recentes</h2>
+        <h2>Recent Results</h2>
         <?php if (empty($recentResults)): ?>
-            <div class="empty">Nenhum resultado ainda.</div>
+            <div class="empty">No results yet.</div>
         <?php else: ?>
             <table>
                 <thead>
                     <tr>
-                        <th>E-mail</th>
+                        <th>Email</th>
                         <th>Status</th>
-                        <th>Erro</th>
+                        <th>Error</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -356,5 +387,12 @@ $recentResults = array_reverse(array_slice($queue, -20));
         <?php endif; ?>
     </div>
 </div>
+
+<script>
+document.getElementById('email_file').addEventListener('change', function(e) {
+    var fileName = e.target.files[0] ? e.target.files[0].name : '';
+    document.getElementById('file-name').textContent = fileName ? 'Selected: ' + fileName : '';
+});
+</script>
 </body>
 </html>
